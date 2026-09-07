@@ -1,0 +1,86 @@
+const express = require("express");
+const db = require("../db");
+const { requireAdmin } = require("../auth");
+const { getConfig } = require("../lib/commission");
+
+const router = express.Router();
+
+router.get("/shops", requireAdmin, (req, res) => {
+  var shops = db.prepare(
+    `SELECT s.*, u.name AS agent_name, u.phone AS agent_phone FROM shops s
+     JOIN users u ON u.id = s.agent_id ORDER BY s.created_at DESC`
+  ).all();
+  res.json({
+    shops: shops.map((s) => ({
+      id: s.id,
+      shopName: s.shop_name,
+      agentName: s.agent_name,
+      agentPhone: s.agent_phone,
+      amount: s.amount,
+      status: s.status,
+      createdAt: s.created_at,
+      paidAt: s.paid_at
+    }))
+  });
+});
+
+router.get("/payouts", requireAdmin, (req, res) => {
+  var payouts = db.prepare(
+    `SELECT p.*, u.name AS agent_name, u.phone AS agent_phone, s.shop_name FROM payouts p
+     JOIN users u ON u.id = p.agent_id
+     JOIN shops s ON s.id = p.shop_id
+     ORDER BY p.created_at DESC`
+  ).all();
+  res.json({
+    payouts: payouts.map((p) => ({
+      id: p.id,
+      agentName: p.agent_name,
+      agentPhone: p.agent_phone,
+      shopName: p.shop_name,
+      level: p.level,
+      amount: p.amount,
+      status: p.status,
+      note: p.note,
+      createdAt: p.created_at,
+      paidAt: p.paid_at
+    }))
+  });
+});
+
+// Records that your team sent the commission by UPI/bank transfer outside
+// this app. This does NOT move any money itself.
+router.post("/payouts/:id/mark-paid", requireAdmin, (req, res) => {
+  var note = String((req.body && req.body.note) || "");
+  var result = db.prepare(
+    "UPDATE payouts SET status = 'paid', paid_at = ?, note = ? WHERE id = ?"
+  ).run(new Date().toISOString(), note, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: "Payout not found." });
+  var payout = db.prepare("SELECT * FROM payouts WHERE id = ?").get(req.params.id);
+  res.json({ payout: { id: payout.id, status: payout.status } });
+});
+
+router.get("/config", requireAdmin, (req, res) => {
+  res.json({ config: getConfig() });
+});
+
+router.put("/config", requireAdmin, (req, res) => {
+  try {
+    var body = req.body || {};
+    var totalAmount = Number(body.totalAmount);
+    var l1Amount = Number(body.l1Amount);
+    var l2Amount = Number(body.l2Amount);
+    if (![totalAmount, l1Amount, l2Amount].every((n) => Number.isFinite(n) && n >= 0)) {
+      return res.status(400).json({ error: "Amounts must be non-negative numbers." });
+    }
+    getConfig(); // ensures the row exists
+    db.prepare(
+      "UPDATE config SET total_amount = ?, l1_amount = ?, l2_amount = ? WHERE id = 1"
+    ).run(totalAmount, l1Amount, l2Amount);
+    res.json({ config: getConfig() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not save settings." });
+  }
+});
+
+module.exports = router;
