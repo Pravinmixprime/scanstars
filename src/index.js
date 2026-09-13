@@ -3,16 +3,17 @@
  *
  * SETUP
  * -----
- *   cp .env.example .env      # then fill in real values
- *   npm run setup              # install deps, create/seed the database
+ *   cp .env.example .env      # then fill in real values, including DATABASE_URL
+ *   npm install
  *   npm start                  # runs on http://localhost:3000 by default
  *
- * The database is a single SQLite file (via Node's built-in node:sqlite —
- * needs Node 22.5+, nothing to compile) — created automatically on first
- * run, no separate database server needed. The frontend in /public is
- * served as static files by this same server — one process, one deploy.
- * Point a platform like Render/Railway/Fly/a VPS at
- * `npm run setup && npm start` and it's live.
+ * The database is Postgres, reached over the network via DATABASE_URL (a
+ * free Supabase project works well and needs no credit card) — nothing to
+ * install locally, nothing to compile on any OS. `npm start` seeds the
+ * schema/admin account before booting the server (see scripts/seed.js), so
+ * a host that only runs one start command (like Render's free tier) always
+ * ends up with a ready database. The frontend in /public is served as
+ * static files by this same server — one process, one deploy.
  *
  * See .env.example for what each setting does, including how to wire up
  * Razorpay for real payments.
@@ -27,6 +28,7 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 
 const { attachSession } = require("./auth");
+const db = require("./db");
 
 const app = express();
 app.set("trust proxy", 1); // needed for secure cookies behind a platform's reverse proxy
@@ -79,4 +81,16 @@ app.use((err, req, res, next) => {
 });
 
 var port = process.env.PORT || 3000;
-app.listen(port, () => console.log("ScanStars backend listening on :" + port));
+
+// db.init() is idempotent (CREATE TABLE/INDEX IF NOT EXISTS), so it's safe
+// to also run it here even though `npm start` already ran it via seed.js —
+// this just protects `npm run dev` (which skips seed.js) from erroring on a
+// database with no tables yet.
+db.init()
+  .then(() => {
+    app.listen(port, () => console.log("ScanStars backend listening on :" + port));
+  })
+  .catch((err) => {
+    console.error("Failed to start: could not reach/initialize the database.", err);
+    process.exit(1);
+  });

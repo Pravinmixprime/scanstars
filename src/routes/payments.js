@@ -27,11 +27,11 @@ router.post("/verify", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Payment signature did not match." });
     }
 
-    var shop = db.prepare("SELECT * FROM shops WHERE razorpay_order_id = ?").get(orderId);
+    var shop = await db.get("SELECT * FROM shops WHERE razorpay_order_id = $1", [orderId]);
     if (!shop) return res.status(404).json({ error: "No matching shop for this order." });
     if (shop.agent_id !== req.userId) return res.status(403).json({ error: "Not your shop." });
 
-    var updated = settleShopPayment(shop.id, { razorpayPaymentId: paymentId });
+    var updated = await settleShopPayment(shop.id, { razorpayPaymentId: paymentId });
     res.json({ shop: { id: updated.id, status: updated.status } });
   } catch (err) {
     console.error(err);

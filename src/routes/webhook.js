@@ -14,7 +14,7 @@ const { settleShopPayment } = require("../lib/commission");
 
 const router = express.Router();
 
-router.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     var secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     var signature = req.headers["x-razorpay-signature"];
@@ -32,8 +32,8 @@ router.post("/webhook", express.raw({ type: "application/json" }), (req, res) =>
         event.payload && event.payload.payment && event.payload.payment.entity && event.payload.payment.entity.id;
 
       if (orderId) {
-        var shop = db.prepare("SELECT * FROM shops WHERE razorpay_order_id = ?").get(orderId);
-        if (shop) settleShopPayment(shop.id, paymentId ? { razorpayPaymentId: paymentId } : {});
+        var shop = await db.get("SELECT * FROM shops WHERE razorpay_order_id = $1", [orderId]);
+        if (shop) await settleShopPayment(shop.id, paymentId ? { razorpayPaymentId: paymentId } : {});
       }
     }
 

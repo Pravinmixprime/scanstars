@@ -46,12 +46,12 @@ router.post("/register", authLimiter, async (req, res) => {
     if (phone.length < 10) return res.status(400).json({ error: "Enter a valid phone number." });
     if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
 
-    var existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+    var existing = await db.get("SELECT id FROM users WHERE phone = $1", [phone]);
     if (existing) return res.status(409).json({ error: "An account with this phone number already exists." });
 
     var referredById = null;
     if (refCode) {
-      var refUser = db.prepare("SELECT id FROM users WHERE referral_code = ?").get(refCode);
+      var refUser = await db.get("SELECT id FROM users WHERE referral_code = $1", [refCode]);
       if (!refUser) return res.status(400).json({ error: "That referral code wasn't found." });
       referredById = refUser.id;
     }
@@ -61,22 +61,22 @@ router.post("/register", authLimiter, async (req, res) => {
 
     // Referral codes are short and drawn from a shared namespace — retry a
     // few times on the (rare) collision rather than trusting one shot.
-    var insert = db.prepare(
-      "INSERT INTO users (id, name, phone, email, password_hash, referral_code, referred_by_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    );
     var code, done = false;
     for (var attempt = 0; attempt < 5 && !done; attempt++) {
       code = randCode(6);
       try {
-        insert.run(id, name, phone, email || null, passwordHash, code, referredById);
+        await db.run(
+          "INSERT INTO users (id, name, phone, email, password_hash, referral_code, referred_by_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [id, name, phone, email || null, passwordHash, code, referredById]
+        );
         done = true;
       } catch (e) {
-        if (String(e.message).indexOf("UNIQUE") !== -1 && String(e.message).indexOf("referral_code") !== -1 && attempt < 4) continue;
+        if (e.code === "23505" && String(e.constraint || "").indexOf("referral_code") !== -1 && attempt < 4) continue;
         throw e;
       }
     }
 
-    var user = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+    var user = await db.get("SELECT * FROM users WHERE id = $1", [id]);
     setSessionCookie(res, { id: user.id, role: user.role });
     res.status(201).json({ user: publicUser(user) });
   } catch (err) {
@@ -92,7 +92,7 @@ router.post("/login", authLimiter, async (req, res) => {
     var password = String(body.password || "");
     var lookupPhone = loginId.toLowerCase() === "admin" ? "admin" : digits(loginId);
 
-    var user = db.prepare("SELECT * FROM users WHERE phone = ?").get(lookupPhone);
+    var user = await db.get("SELECT * FROM users WHERE phone = $1", [lookupPhone]);
     if (!user) return res.status(401).json({ error: "No account found with that phone number." });
 
     var ok = await verifyPassword(password, user.password_hash);
@@ -111,10 +111,15 @@ router.post("/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/me", requireAuth, (req, res) => {
-  var user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-  if (!user) return res.status(401).json({ error: "Not logged in." });
-  res.json({ user: publicUser(user) });
+router.get("/me", requireAuth, async (req, res) => {
+  try {
+    var user = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    if (!user) return res.status(401).json({ error: "Not logged in." });
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load account." });
+  }
 });
 
 module.exports = router;

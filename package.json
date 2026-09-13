@@ -6,11 +6,11 @@
   "type": "commonjs",
   "main": "src/index.js",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=18.0.0"
   },
   "scripts": {
     "dev": "node src/index.js",
-    "start": "node src/index.js",
+    "start": "node scripts/seed.js && node src/index.js",
     "seed": "node scripts/seed.js",
     "setup": "npm install && npm run seed"
   },
@@ -23,6 +23,7 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
     "qrcode": "^1.5.4",
     "razorpay": "^2.9.4"
   }

@@ -22,22 +22,32 @@ function serializeShop(s) {
   };
 }
 
-function loadOwnedShop(req, res, next) {
-  var shop = db.prepare("SELECT * FROM shops WHERE id = ?").get(req.params.id);
-  if (!shop) return res.status(404).json({ error: "Shop not found." });
-  if (shop.agent_id !== req.userId && req.userRole !== "admin") {
-    return res.status(404).json({ error: "Shop not found." });
+async function loadOwnedShop(req, res, next) {
+  try {
+    var shop = await db.get("SELECT * FROM shops WHERE id = $1", [req.params.id]);
+    if (!shop) return res.status(404).json({ error: "Shop not found." });
+    if (shop.agent_id !== req.userId && req.userRole !== "admin") {
+      return res.status(404).json({ error: "Shop not found." });
+    }
+    req.shop = shop;
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load shop." });
   }
-  req.shop = shop;
-  next();
 }
 
-router.get("/", requireAuth, (req, res) => {
-  var shops = db.prepare("SELECT * FROM shops WHERE agent_id = ? ORDER BY created_at DESC").all(req.userId);
-  res.json({ shops: shops.map(serializeShop) });
+router.get("/", requireAuth, async (req, res) => {
+  try {
+    var shops = await db.all("SELECT * FROM shops WHERE agent_id = $1 ORDER BY created_at DESC", [req.userId]);
+    res.json({ shops: shops.map(serializeShop) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load shops." });
+  }
 });
 
-router.post("/", requireAuth, (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
     var body = req.body || {};
     var shopName = String(body.shopName || "").trim();
@@ -47,15 +57,16 @@ router.post("/", requireAuth, (req, res) => {
     if (!shopName) return res.status(400).json({ error: "Shop name is required." });
     if (!reviewLink.startsWith("http")) return res.status(400).json({ error: "Enter a valid review link." });
 
-    var agent = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    var cfg = getConfig();
+    var agent = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    var cfg = await getConfig();
     var id = crypto.randomUUID();
 
-    db.prepare(
-      "INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount);
+    await db.run(
+      "INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+    );
 
-    var shop = db.prepare("SELECT * FROM shops WHERE id = ?").get(id);
+    var shop = await db.get("SELECT * FROM shops WHERE id = $1", [id]);
     res.status(201).json({ shop: serializeShop(shop) });
   } catch (err) {
     console.error(err);
@@ -85,7 +96,7 @@ router.post("/:id/create-order", requireAuth, loadOwnedShop, async (req, res) =>
       notes: { shopId: req.shop.id, agentId: req.shop.agent_id }
     });
 
-    db.prepare("UPDATE shops SET razorpay_order_id = ? WHERE id = ?").run(order.id, req.shop.id);
+    await db.run("UPDATE shops SET razorpay_order_id = $1 WHERE id = $2", [order.id, req.shop.id]);
 
     res.json({
       orderId: order.id,

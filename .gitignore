@@ -1,9 +1,14 @@
+# Dependencies
 node_modules/
+
+# Secrets — never commit real credentials
 .env
-data.sqlite3
-data.sqlite3-*
+
+# Logs
 *.log
 npm-debug.log*
+
+# OS/editor cruft
 .DS_Store
 Thumbs.db
 .vscode/
