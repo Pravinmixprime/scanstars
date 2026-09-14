@@ -112,6 +112,69 @@ router.post("/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+// Low-sensitivity info — no password confirmation needed to change it.
+router.put("/profile", requireAuth, async (req, res) => {
+  try {
+    var body = req.body || {};
+    var name = String(body.name || "").trim();
+    var email = String(body.email || "").trim();
+    if (!name) return res.status(400).json({ error: "Name is required." });
+
+    await db.run("UPDATE users SET name = $1, email = $2 WHERE id = $3", [name, email || null, req.userId]);
+    var user = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not update profile." });
+  }
+});
+
+// Phone number doubles as the login username, so changing it requires
+// re-confirming the current password — otherwise anyone who found an
+// already-logged-in session could quietly take over the account.
+router.put("/phone", requireAuth, authLimiter, async (req, res) => {
+  try {
+    var body = req.body || {};
+    var newPhone = digits(body.newPhone);
+    var currentPassword = String(body.currentPassword || "");
+    if (newPhone.length < 10) return res.status(400).json({ error: "Enter a valid phone number." });
+
+    var user = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    var ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) return res.status(401).json({ error: "Current password is incorrect." });
+
+    var existing = await db.get("SELECT id FROM users WHERE phone = $1 AND id != $2", [newPhone, req.userId]);
+    if (existing) return res.status(409).json({ error: "That phone number is already in use by another account." });
+
+    await db.run("UPDATE users SET phone = $1 WHERE id = $2", [newPhone, req.userId]);
+    var updated = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    res.json({ user: publicUser(updated) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not update phone number." });
+  }
+});
+
+router.put("/password", requireAuth, authLimiter, async (req, res) => {
+  try {
+    var body = req.body || {};
+    var currentPassword = String(body.currentPassword || "");
+    var newPassword = String(body.newPassword || "");
+    if (newPassword.length < 6) return res.status(400).json({ error: "New password must be at least 6 characters." });
+
+    var user = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);
+    var ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) return res.status(401).json({ error: "Current password is incorrect." });
+
+    var hash = await hashPassword(newPassword);
+    await db.run("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, req.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not change password." });
+  }
+});
+
 router.get("/me", requireAuth, async (req, res) => {
   try {
     var user = await db.get("SELECT * FROM users WHERE id = $1", [req.userId]);

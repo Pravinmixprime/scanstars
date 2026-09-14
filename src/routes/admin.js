@@ -7,6 +7,46 @@ const { digits } = require("../lib/util");
 
 const router = express.Router();
 
+// Every registered account (partners/agents and any bulk buyers) with
+// enough detail to answer "who has signed up, and what have they done" at a
+// glance — join date, who referred them, how many shops they've added, and
+// any bulk credit balance.
+router.get("/users", requireAdmin, async (req, res) => {
+  try {
+    var users = await db.all(`
+      SELECT
+        u.id, u.name, u.phone, u.email, u.role, u.referral_code, u.bulk_credits, u.created_at,
+        ref.name AS referred_by_name, ref.phone AS referred_by_phone,
+        COUNT(s.id) FILTER (WHERE s.status = 'paid') AS shops_paid,
+        COUNT(s.id) AS shops_total
+      FROM users u
+      LEFT JOIN users ref ON ref.id = u.referred_by_id
+      LEFT JOIN shops s ON s.agent_id = u.id
+      GROUP BY u.id, ref.name, ref.phone
+      ORDER BY u.created_at DESC
+    `);
+    res.json({
+      users: users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        phone: u.phone,
+        email: u.email,
+        role: u.role,
+        referralCode: u.referral_code,
+        referredByName: u.referred_by_name,
+        referredByPhone: u.referred_by_phone,
+        bulkCredits: u.bulk_credits,
+        shopsPaid: Number(u.shops_paid),
+        shopsTotal: Number(u.shops_total),
+        createdAt: u.created_at
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load partners." });
+  }
+});
+
 router.get("/shops", requireAdmin, async (req, res) => {
   try {
     var shops = await db.all(

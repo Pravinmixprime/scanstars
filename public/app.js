@@ -73,9 +73,11 @@
     var items = [
       { key: "overview", path: "#/app", label: "Overview" },
       { key: "shops", path: "#/app/shops", label: "My shops" },
-      { key: "network", path: "#/app/network", label: "My network" }
+      { key: "network", path: "#/app/network", label: "My network" },
+      { key: "account", path: "#/app/account", label: "My account" }
     ];
     var adminItems = [
+      { key: "a-users", path: "#/admin/users", label: "Partners" },
       { key: "a-transactions", path: "#/admin/transactions", label: "Transactions" },
       { key: "a-payouts", path: "#/admin/payouts", label: "Payouts" },
       { key: "a-bulk", path: "#/admin/bulk-grants", label: "Bulk QR credits" },
@@ -241,6 +243,42 @@
     return appShell("network", "My network", html);
   }
 
+  function viewAccount() {
+    var html = '<div class="stack gap-24" style="max-width:480px">';
+
+    html += '<div class="card" style="padding:26px">' +
+      '<div style="font-weight:600;margin-bottom:16px">Profile</div>' +
+      '<div id="profile-msg"></div>' +
+      '<form data-form="account-profile">' +
+        '<div class="field"><label>Full name</label><input name="name" value="' + esc(session.name) + '" required></div>' +
+        '<div class="field"><label>Email (optional)</label><input name="email" type="email" value="' + esc(session.email || "") + '"></div>' +
+        '<button class="btn btn-primary" type="submit">Save profile</button>' +
+      '</form></div>';
+
+    html += '<div class="card" style="padding:26px">' +
+      '<div style="font-weight:600;margin-bottom:4px">Phone number</div>' +
+      '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Current: <span class="mono">' + esc(session.phone) + '</span> — this is what you log in with.</div>' +
+      '<div id="phone-msg"></div>' +
+      '<form data-form="account-phone">' +
+        '<div class="field"><label>New phone number</label><input name="newPhone" inputmode="numeric" required></div>' +
+        '<div class="field"><label>Current password (to confirm it’s you)</label><input name="currentPassword" type="password" required></div>' +
+        '<button class="btn btn-primary" type="submit">Update phone number</button>' +
+      '</form></div>';
+
+    html += '<div class="card" style="padding:26px">' +
+      '<div style="font-weight:600;margin-bottom:16px">Password</div>' +
+      '<div id="password-msg"></div>' +
+      '<form data-form="account-password">' +
+        '<div class="field"><label>Current password</label><input name="currentPassword" type="password" required></div>' +
+        '<div class="field"><label>New password</label><input name="newPassword" type="password" minlength="6" required></div>' +
+        '<div class="field"><label>Confirm new password</label><input name="confirmPassword" type="password" minlength="6" required></div>' +
+        '<button class="btn btn-primary" type="submit">Change password</button>' +
+      '</form></div>';
+
+    html += '</div>';
+    return appShell("account", "My account", html);
+  }
+
   function viewAddShop() {
     var hasCredit = session.bulkCredits > 0;
     var html = '<div class="card" style="max-width:480px;padding:26px">';
@@ -312,6 +350,30 @@
   // ---------------------------------------------------------------------
   // Views: admin
   // ---------------------------------------------------------------------
+  async function viewAdminUsers() {
+    var data = await api("GET", "/admin/users");
+    var users = data.users;
+    var partners = users.filter(function (u) { return u.role !== "admin"; });
+    var withCredits = partners.filter(function (u) { return u.bulkCredits > 0; });
+
+    var html = '<div class="tiles tiles-3">' +
+      tile("Registered partners", partners.length) +
+      tile("With shops paid & live", partners.filter(function (u) { return u.shopsPaid > 0; }).length) +
+      tile("Holding bulk credits", withCredits.length) + '</div>';
+
+    if (!partners.length) {
+      html += '<div class="card muted" style="padding:32px;text-align:center">No one has signed up yet.</div>';
+    } else {
+      var rows = partners.map(function (u) {
+        var referredBy = u.referredByName ? esc(u.referredByName) + ' <span class="muted mono" style="font-size:12px">(' + esc(u.referredByPhone) + ')</span>' : '<span class="muted">—</span>';
+        var credits = u.bulkCredits > 0 ? '<span class="pill pill-success">' + u.bulkCredits + '</span>' : '<span class="muted">0</span>';
+        return '<tr><td>' + esc(u.name) + '</td><td class="mono">' + esc(u.phone) + '</td><td>' + esc(u.email || "—") + '</td><td>' + referredBy + '</td><td class="mono">' + u.shopsPaid + ' / ' + u.shopsTotal + '</td><td>' + credits + '</td><td class="mono">' + fmtDate(u.createdAt) + '</td></tr>';
+      }).join("");
+      html += '<div class="card table-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Referred by</th><th>Shops paid/total</th><th>Bulk credits</th><th>Joined</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+    return appShell("a-users", "Partners", html);
+  }
+
   async function viewAdminTransactions() {
     var data = await api("GET", "/admin/shops");
     var shops = data.shops;
@@ -429,10 +491,12 @@
       else if (path === "/app") html = await viewOverview();
       else if (path === "/app/shops") html = await viewMyShops();
       else if (path === "/app/network") html = await viewMyNetwork();
+      else if (path === "/app/account") html = viewAccount();
       else if (path === "/app/add-shop") html = viewAddShop();
       else if (path.indexOf("/app/pay/") === 0) html = await viewPay(path.slice(9));
       else if (path.indexOf("/app/success/") === 0) html = await viewSuccess(path.slice(13));
-      else if (path === "/admin" || path === "/admin/transactions") html = await viewAdminTransactions();
+      else if (path === "/admin" || path === "/admin/users") html = await viewAdminUsers();
+      else if (path === "/admin/transactions") html = await viewAdminTransactions();
       else if (path === "/admin/payouts") html = await viewAdminPayouts();
       else if (path === "/admin/bulk-grants") html = await viewAdminBulkGrants();
       else if (path === "/admin/settings") html = await viewAdminSettings();
@@ -463,6 +527,8 @@
     var kind = form.getAttribute("data-form");
     var fd = new FormData(form);
     var btn = form.querySelector("button[type=submit]");
+    var msgTargets = { "account-profile": "profile-msg", "account-phone": "phone-msg", "account-password": "password-msg" };
+    var msgTarget = msgTargets[kind];
     if (btn) btn.disabled = true;
     try {
       if (kind === "register") {
@@ -497,9 +563,25 @@
         });
         form.reset();
         render();
+      } else if (kind === "account-profile") {
+        var rp = await api("PUT", "/auth/profile", { name: fd.get("name"), email: fd.get("email") });
+        session = rp.user;
+        showMsg("Profile updated.", "ok", msgTarget);
+      } else if (kind === "account-phone") {
+        var rph = await api("PUT", "/auth/phone", { newPhone: fd.get("newPhone"), currentPassword: fd.get("currentPassword") });
+        session = rph.user;
+        form.reset();
+        showMsg("Phone number updated — use your new number next time you log in.", "ok", msgTarget);
+      } else if (kind === "account-password") {
+        var newPw = fd.get("newPassword");
+        var confirmPw = fd.get("confirmPassword");
+        if (newPw !== confirmPw) throw new Error("New passwords don't match.");
+        await api("PUT", "/auth/password", { currentPassword: fd.get("currentPassword"), newPassword: newPw });
+        form.reset();
+        showMsg("Password changed.", "ok", msgTarget);
       }
     } catch (err) {
-      showMsg(err.message, "err");
+      showMsg(err.message, "err", msgTarget);
     } finally {
       if (btn) btn.disabled = false;
     }
