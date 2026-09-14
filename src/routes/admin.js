@@ -1,7 +1,9 @@
 const express = require("express");
+const crypto = require("crypto");
 const db = require("../db");
 const { requireAdmin } = require("../auth");
 const { getConfig } = require("../lib/commission");
+const { digits } = require("../lib/util");
 
 const router = express.Router();
 
@@ -19,6 +21,7 @@ router.get("/shops", requireAdmin, async (req, res) => {
         agentPhone: s.agent_phone,
         amount: s.amount,
         status: s.status,
+        paidVia: s.paid_via,
         createdAt: s.created_at,
         paidAt: s.paid_at
       }))
@@ -102,6 +105,71 @@ router.put("/config", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Could not save settings." });
+  }
+});
+
+// Records a negotiated bulk QR deal after you've settled payment with the
+// buyer outside the app (bank transfer, UPI, etc.) and credits their
+// account with that many QR codes to give out for free, one per shop, until
+// the balance runs out. Does NOT charge or move any money itself.
+router.post("/bulk-grants", requireAdmin, async (req, res) => {
+  var client = await db.pool.connect();
+  try {
+    var body = req.body || {};
+    var phone = digits(body.phone);
+    var quantity = Number(body.quantity);
+    var unitPrice = Number(body.unitPrice);
+    var note = String(body.note || "");
+
+    if (!phone) return res.status(400).json({ error: "Enter the buyer's phone number." });
+    if (!Number.isInteger(quantity) || quantity <= 0) return res.status(400).json({ error: "Quantity must be a positive whole number." });
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: "Unit price must be a non-negative number." });
+
+    var buyer = await db.get("SELECT id, name FROM users WHERE phone = $1", [phone]);
+    if (!buyer) return res.status(404).json({ error: "No account found with that phone number. They need to sign up first." });
+
+    var totalAmount = quantity * unitPrice;
+    var id = crypto.randomUUID();
+
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO bulk_grants (id, user_id, quantity, unit_price, total_amount, note, granted_by) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [id, buyer.id, quantity, unitPrice, totalAmount, note || null, req.userId]
+    );
+    await client.query("UPDATE users SET bulk_credits = bulk_credits + $1 WHERE id = $2", [quantity, buyer.id]);
+    await client.query("COMMIT");
+
+    res.status(201).json({ grant: { id: id, buyerName: buyer.name, quantity: quantity, unitPrice: unitPrice, totalAmount: totalAmount } });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (e2) { /* connection may already be broken */ }
+    console.error(err);
+    res.status(500).json({ error: "Could not grant bulk credits." });
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/bulk-grants", requireAdmin, async (req, res) => {
+  try {
+    var grants = await db.all(
+      `SELECT g.*, u.name AS buyer_name, u.phone AS buyer_phone FROM bulk_grants g
+       JOIN users u ON u.id = g.user_id ORDER BY g.created_at DESC`
+    );
+    res.json({
+      grants: grants.map((g) => ({
+        id: g.id,
+        buyerName: g.buyer_name,
+        buyerPhone: g.buyer_phone,
+        quantity: g.quantity,
+        unitPrice: g.unit_price,
+        totalAmount: g.total_amount,
+        note: g.note,
+        createdAt: g.created_at
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load bulk grants." });
   }
 });
 

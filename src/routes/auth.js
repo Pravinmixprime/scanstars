@@ -29,6 +29,7 @@ function publicUser(row) {
     role: row.role,
     referralCode: row.referral_code,
     referredById: row.referred_by_id,
+    bulkCredits: row.bulk_credits,
     createdAt: row.created_at
   };
 }

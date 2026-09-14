@@ -17,6 +17,7 @@ function serializeShop(s) {
     reviewLink: s.review_link,
     amount: s.amount,
     status: s.status,
+    paidVia: s.paid_via,
     createdAt: s.created_at,
     paidAt: s.paid_at
   };
@@ -61,13 +62,30 @@ router.post("/", requireAuth, async (req, res) => {
     var cfg = await getConfig();
     var id = crypto.randomUUID();
 
-    await db.run(
-      "INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-      [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+    // If this agent has prepaid bulk QR credits, spend one instead of
+    // charging for this shop — the atomic conditional UPDATE means two
+    // requests racing each other can't both spend the same last credit.
+    var creditSpend = await db.run(
+      "UPDATE users SET bulk_credits = bulk_credits - 1 WHERE id = $1 AND bulk_credits > 0",
+      [agent.id]
     );
+    var usedCredit = creditSpend.rowCount > 0;
+
+    if (usedCredit) {
+      await db.run(
+        `INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount, status, paid_at, paid_via)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'paid', now(), 'bulk_credit')`,
+        [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+      );
+    } else {
+      await db.run(
+        "INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+      );
+    }
 
     var shop = await db.get("SELECT * FROM shops WHERE id = $1", [id]);
-    res.status(201).json({ shop: serializeShop(shop) });
+    res.status(201).json({ shop: serializeShop(shop), usedCredit: usedCredit });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Could not add shop." });

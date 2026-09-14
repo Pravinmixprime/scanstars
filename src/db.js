@@ -96,7 +96,30 @@ async function init() {
       l1_amount    INTEGER NOT NULL DEFAULT 150,
       l2_amount    INTEGER NOT NULL DEFAULT 50
     );
+
+    -- Bulk QR purchases: a user (e.g. a distributor) pre-pays for a batch of
+    -- QR codes at a negotiated discounted rate, granted manually by an admin
+    -- after the deal is settled outside the app. Each grant is a permanent
+    -- audit record; users.bulk_credits is the running balance of credits
+    -- from all grants not yet spent on a shop.
+    CREATE TABLE IF NOT EXISTS bulk_grants (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id),
+      quantity     INTEGER NOT NULL,
+      unit_price   INTEGER NOT NULL,
+      total_amount INTEGER NOT NULL,
+      note         TEXT,
+      granted_by   TEXT REFERENCES users(id),
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_bulk_grants_user ON bulk_grants(user_id);
   `);
+
+  // Added after the tables above already existed in deployed databases —
+  // ADD COLUMN IF NOT EXISTS keeps this safe to run on every boot, on a
+  // brand-new database and an already-live one alike.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bulk_credits INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE shops ADD COLUMN IF NOT EXISTS paid_via TEXT;`);
 }
 
 module.exports = { pool, get, all, run, init };
