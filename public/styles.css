@@ -134,6 +134,22 @@ tr:last-child td { border-bottom: none; }
 .qr-card-preview .bracket { position: absolute; width: 20px; height: 20px; }
 .qr-card-preview .caption { margin-top: 12px; font-weight: 700; font-size: 11px; }
 
+/* Public review-prompt page — opened by scanning a shop's QR code, no
+   login, designed mobile-first since that's how it's always reached. */
+.review-page { min-height: 100vh; display: flex; justify-content: center; padding: 40px 18px 60px; }
+.review-page-inner { width: 100%; max-width: 420px; }
+.review-hero { text-align: center; margin-bottom: 22px; }
+.review-hero .brand-mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+.review-hero h1 { font-size: 24px; line-height: 1.25; }
+.review-card { padding: 22px; }
+.prompt-list { display: flex; flex-direction: column; gap: 10px; }
+.prompt-chip { text-align: left; background: var(--surface-2); border: 1.5px solid var(--border); border-radius: 10px; padding: 14px 16px; font-size: 14.5px; font-weight: 600; color: var(--text); cursor: pointer; }
+.prompt-chip:hover { border-color: var(--accent); }
+.prompt-chip.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.review-cta { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.review-cta.hidden { display: none; }
+.review-foot { text-align: center; font-size: 12.5px; margin-top: 22px; }
+
 @media (max-width: 760px) {
   .steps { grid-template-columns: 1fr; }
   .tiles, .tiles-2, .tiles-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }

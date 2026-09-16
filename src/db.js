@@ -120,6 +120,9 @@ async function init() {
   // brand-new database and an already-live one alike.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bulk_credits INTEGER NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE shops ADD COLUMN IF NOT EXISTS paid_via TEXT;`);
+  // Lets the public review-prompt page (see /r/:id) show a handful of
+  // prompts relevant to the kind of business, instead of only generic ones.
+  await pool.query(`ALTER TABLE shops ADD COLUMN IF NOT EXISTS category TEXT;`);
 }
 
 module.exports = { pool, get, all, run, init };

@@ -9,12 +9,18 @@ const { getRazorpay } = require("../lib/razorpay");
 
 const router = express.Router();
 
+// Only categories we actually have thought-starter prompts for on the
+// public review page — anything else (including missing/old shops) falls
+// back to the generic prompt set there.
+var SHOP_CATEGORIES = ["restaurant", "salon", "retail", "services", "other"];
+
 function serializeShop(s) {
   return {
     id: s.id,
     shopName: s.shop_name,
     ownerPhone: s.owner_phone,
     reviewLink: s.review_link,
+    category: s.category,
     amount: s.amount,
     status: s.status,
     paidVia: s.paid_via,
@@ -54,6 +60,8 @@ router.post("/", requireAuth, async (req, res) => {
     var shopName = String(body.shopName || "").trim();
     var ownerPhone = digits(body.ownerPhone);
     var reviewLink = String(body.reviewLink || "").trim();
+    var category = String(body.category || "other").trim().toLowerCase();
+    if (SHOP_CATEGORIES.indexOf(category) === -1) category = "other";
 
     if (!shopName) return res.status(400).json({ error: "Shop name is required." });
     if (!reviewLink.startsWith("http")) return res.status(400).json({ error: "Enter a valid review link." });
@@ -73,14 +81,14 @@ router.post("/", requireAuth, async (req, res) => {
 
     if (usedCredit) {
       await db.run(
-        `INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount, status, paid_at, paid_via)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'paid', now(), 'bulk_credit')`,
-        [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+        `INSERT INTO shops (id, shop_name, owner_phone, review_link, category, agent_id, agent_referrer_id, amount, status, paid_at, paid_via)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'paid', now(), 'bulk_credit')`,
+        [id, shopName, ownerPhone, reviewLink, category, agent.id, agent.referred_by_id || null, cfg.totalAmount]
       );
     } else {
       await db.run(
-        "INSERT INTO shops (id, shop_name, owner_phone, review_link, agent_id, agent_referrer_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        [id, shopName, ownerPhone, reviewLink, agent.id, agent.referred_by_id || null, cfg.totalAmount]
+        "INSERT INTO shops (id, shop_name, owner_phone, review_link, category, agent_id, agent_referrer_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        [id, shopName, ownerPhone, reviewLink, category, agent.id, agent.referred_by_id || null, cfg.totalAmount]
       );
     }
 
@@ -94,6 +102,22 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.get("/:id", requireAuth, loadOwnedShop, (req, res) => {
   res.json({ shop: serializeShop(req.shop) });
+});
+
+// Unauthenticated — this is what the customer-facing review-prompt page
+// (public/#/r/:id, reached by scanning the QR code) calls to know the shop
+// name, category and where the actual Google review composer link goes.
+// Deliberately returns only what that page needs, nothing about the agent
+// or payment status.
+router.get("/:id/public", async (req, res) => {
+  try {
+    var shop = await db.get("SELECT shop_name, category, review_link FROM shops WHERE id = $1", [req.params.id]);
+    if (!shop) return res.status(404).json({ error: "Not found." });
+    res.json({ shop: { shopName: shop.shop_name, category: shop.category, reviewLink: shop.review_link } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load shop." });
+  }
 });
 
 router.post("/:id/create-order", requireAuth, loadOwnedShop, async (req, res) => {
@@ -130,7 +154,12 @@ router.post("/:id/create-order", requireAuth, loadOwnedShop, async (req, res) =>
 
 router.get("/:id/qr.png", requireAuth, loadOwnedShop, async (req, res) => {
   try {
-    var buf = await generateQrPng(req.shop.review_link);
+    // The QR encodes our own review-prompt page, not the raw Google link
+    // directly — that page shows the customer a couple of thought-starter
+    // prompts and then sends them into Google's real review composer to
+    // write and submit their own review.
+    var reviewPageUrl = req.protocol + "://" + req.get("host") + "/r/" + req.shop.id;
+    var buf = await generateQrPng(reviewPageUrl);
     res.set("Content-Type", "image/png");
     res.send(buf);
   } catch (err) {

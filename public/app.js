@@ -4,6 +4,20 @@
   var STAR_PATH = "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
   var session = null; // { id, name, phone, role, referralCode, referredById } — null until /api/auth/me resolves
 
+  // Thought-starter prompts shown on the public review page (scanned via
+  // QR). These are just conversation starters to help the customer think —
+  // whichever one they tap, they land on the SAME real Google review link
+  // and type their own words there. Nothing here is ever pre-filled or
+  // auto-submitted; that would be fake-review content, which Google's
+  // policies prohibit and can get a Business Profile suspended.
+  var REVIEW_PROMPTS = {
+    restaurant: ["How was the food?", "How was the service?", "How was the overall experience?", "Would you recommend us to a friend?"],
+    salon: ["How was your service today?", "How friendly was our staff?", "How was the place & hygiene?", "Would you book with us again?"],
+    retail: ["Did you find what you were looking for?", "How helpful was our staff?", "How was your shopping experience?", "Would you shop here again?"],
+    services: ["How was the quality of the work?", "Were we on time and professional?", "Would you use us again?", "How was your overall experience?"],
+    other: ["How was your overall experience?", "What did you like most?", "How was our service?", "Would you recommend us to others?"]
+  };
+
   // ---------------------------------------------------------------------
   // API helper
   // ---------------------------------------------------------------------
@@ -289,6 +303,14 @@
       '<form data-form="add-shop">' +
         '<div class="field"><label>Shop name</label><input name="shopName" required></div>' +
         '<div class="field"><label>Shop owner’s phone</label><input name="ownerPhone" inputmode="numeric" required></div>' +
+        '<div class="field"><label>Business type</label><select name="category">' +
+          '<option value="restaurant">Restaurant / Café</option>' +
+          '<option value="salon">Salon / Spa / Wellness</option>' +
+          '<option value="retail">Retail / Shop</option>' +
+          '<option value="services">Services (repair, professional, etc.)</option>' +
+          '<option value="other" selected>Other</option>' +
+        '</select>' +
+          '<div class="muted" style="font-size:12px;margin-top:6px">Used to show the customer relevant prompts before they write their Google review.</div></div>' +
         '<div class="field"><label>Google review link</label><input name="reviewLink" placeholder="https://g.page/r/.../review" required>' +
           '<div class="muted" style="font-size:12px;margin-top:6px">The exact link that opens this shop’s Google review composer.</div></div>' +
         '<button class="btn btn-primary btn-block" type="submit">' + (hasCredit ? "Create QR code" : "Continue to payment") + '</button>' +
@@ -340,11 +362,63 @@
       '</div>' +
       '<div class="card stack gap-16" style="flex:1;min-width:260px;padding:24px">' +
         '<div class="pill pill-success" style="width:fit-content">Paid &amp; live</div>' +
-        '<div><div class="muted" style="font-size:12.5px;text-transform:uppercase;font-weight:600">Review link</div><div class="mono" style="word-break:break-all;margin-top:4px">' + esc(shop.reviewLink) + '</div></div>' +
+        '<div><div class="muted" style="font-size:12.5px;text-transform:uppercase;font-weight:600">What the QR opens</div><div class="mono" style="word-break:break-all;margin-top:4px">' + esc(location.origin) + '/r/' + esc(shop.id) + '</div>' +
+          '<div class="muted" style="font-size:12.5px;margin-top:6px">A short page with a few prompts, which then sends the customer to the Google review link below to write &amp; submit their own review.</div></div>' +
+        '<div><div class="muted" style="font-size:12.5px;text-transform:uppercase;font-weight:600">Google review link</div><div class="mono" style="word-break:break-all;margin-top:4px">' + esc(shop.reviewLink) + '</div></div>' +
         '<a class="btn btn-primary" href="' + qrUrl + '" download="' + esc(shop.shopName.replace(/[^\w\-]+/g, "_")) + '_qr.png">Download QR (PNG)</a>' +
         '<a href="#/app/shops" class="btn btn-ghost">Back to my shops</a>' +
       '</div></div>';
     return appShell("shops", "Shop live", html);
+  }
+
+  // ---------------------------------------------------------------------
+  // Public review-prompt page (reached by scanning a shop's QR code —
+  // no login, not part of the hash router since it's a real path the QR
+  // encodes: /r/:shopId).
+  // ---------------------------------------------------------------------
+  function reviewPageShell(inner) {
+    return (
+      '<div class="review-page">' +
+        '<div class="review-page-inner">' + inner + '</div>' +
+      '</div>'
+    );
+  }
+
+  async function renderReviewPage(shopId) {
+    var app = document.getElementById("app");
+    var shop;
+    try {
+      var data = await api("GET", "/shops/" + shopId + "/public");
+      shop = data.shop;
+    } catch (e) {
+      app.innerHTML = reviewPageShell(
+        '<div class="card" style="padding:32px;text-align:center"><div class="muted">This review page couldn’t be found.</div></div>'
+      );
+      return;
+    }
+
+    var prompts = REVIEW_PROMPTS[shop.category] || REVIEW_PROMPTS.other;
+    var chips = prompts.map(function (p, i) {
+      return '<button type="button" class="prompt-chip" data-action="pick-prompt" data-idx="' + i + '">' + esc(p) + '</button>';
+    }).join("");
+
+    var html =
+      '<div class="review-hero">' +
+        '<div class="brand-mark" style="margin:0 auto 14px">' + starIcon(20, "#fff") + '</div>' +
+        starsRow(26) +
+        '<h1 style="margin-top:16px">Thanks for visiting<br>' + esc(shop.shopName) + '</h1>' +
+        '<p class="muted" style="margin-top:10px">Tap whichever sounds most like your visit — then tell Google about it in your own words.</p>' +
+      '</div>' +
+      '<div class="card review-card">' +
+        '<div class="prompt-list">' + chips + '</div>' +
+        '<div id="review-cta" class="review-cta hidden">' +
+          '<div class="muted" style="font-size:13.5px;margin-bottom:12px">Great — now share that on Google. You’ll write and post the review yourself, on Google’s own page.</div>' +
+          '<a class="btn btn-primary btn-block" href="' + esc(shop.reviewLink) + '" target="_blank" rel="noopener">Continue to Google Reviews</a>' +
+        '</div>' +
+      '</div>' +
+      '<div class="review-foot muted">Powered by ScanStars</div>';
+
+    app.innerHTML = reviewPageShell(html);
   }
 
   // ---------------------------------------------------------------------
@@ -544,7 +618,7 @@
         go(session.role === "admin" ? "/admin" : "/app");
       } else if (kind === "add-shop") {
         var res3 = await api("POST", "/shops", {
-          shopName: fd.get("shopName"), ownerPhone: fd.get("ownerPhone"), reviewLink: fd.get("reviewLink")
+          shopName: fd.get("shopName"), ownerPhone: fd.get("ownerPhone"), reviewLink: fd.get("reviewLink"), category: fd.get("category")
         });
         if (res3.usedCredit) {
           session.bulkCredits = Math.max(0, (session.bulkCredits || 0) - 1);
@@ -605,6 +679,14 @@
       var bdEl2 = document.getElementById("app-sidebar-backdrop");
       if (sbEl2) sbEl2.classList.remove("open");
       if (bdEl2) bdEl2.classList.remove("open");
+    }
+    if (action === "pick-prompt") {
+      e.preventDefault();
+      var chips = document.querySelectorAll(".prompt-chip");
+      for (var ci = 0; ci < chips.length; ci++) chips[ci].classList.remove("selected");
+      t.classList.add("selected");
+      var cta = document.getElementById("review-cta");
+      if (cta) cta.classList.remove("hidden");
     }
     if (action === "logout") {
       e.preventDefault();
@@ -672,6 +754,12 @@
   // Boot
   // ---------------------------------------------------------------------
   (async function boot() {
+    // The QR code points at a real path (/r/:shopId), not a #hash route,
+    // so it works the instant it's scanned without depending on any
+    // client-side routing state — and it needs no login at all.
+    var reviewMatch = location.pathname.match(/^\/r\/([^\/]+)\/?$/);
+    if (reviewMatch) { renderReviewPage(reviewMatch[1]); return; }
+
     try {
       var res = await api("GET", "/auth/me");
       session = res.user;
