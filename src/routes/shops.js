@@ -1,13 +1,26 @@
 const express = require("express");
 const crypto = require("crypto");
+const rateLimit = require("express-rate-limit");
 const db = require("../db");
 const { requireAuth } = require("../auth");
 const { getConfig } = require("../lib/commission");
 const { generateQrPng } = require("../lib/qr");
 const { digits } = require("../lib/util");
 const { getRazorpay } = require("../lib/razorpay");
+const googlePlaces = require("../lib/googlePlaces");
 
 const router = express.Router();
+
+// Each search costs real money against the Google Places API once past its
+// free monthly threshold, so this is capped tighter than the app-wide API
+// limiter — plenty for someone hunting down the right listing, not enough
+// to run up a bill by accident or abuse.
+var placeSearchLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Only categories we actually have thought-starter prompts for on the
 // public review page — anything else (including missing/old shops) falls
@@ -51,6 +64,27 @@ router.get("/", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Could not load shops." });
+  }
+});
+
+// Lets the "Add shop" form search Google Maps by name (and city) instead
+// of the agent hunting for a Place ID by hand. Returns candidate listings
+// only (id/name/address) — never anything about reviews — so the agent can
+// pick the right one and we build the real review-composer link from its
+// Place ID.
+router.get("/place-search", requireAuth, placeSearchLimiter, async (req, res) => {
+  try {
+    if (!googlePlaces.isConfigured()) {
+      return res.status(503).json({ error: "Google place search isn't set up on this server yet — enter the review link manually below." });
+    }
+    var query = String(req.query.q || "").trim();
+    if (query.length < 3) return res.status(400).json({ error: "Type at least a few characters to search." });
+
+    var results = await googlePlaces.searchPlaces(query);
+    res.json({ results: results });
+  } catch (err) {
+    console.error(err);
+    res.status(502).json({ error: "Could not search Google Maps right now — enter the review link manually below." });
   }
 });
 

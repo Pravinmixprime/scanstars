@@ -122,6 +122,12 @@ tr:last-child td { border-bottom: none; }
 .brand-stripe { display: flex; height: 6px; border-radius: 3px 3px 0 0; overflow: hidden; }
 .brand-stripe div { flex: 1; }
 
+.place-result-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+.place-result-item { text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; cursor: pointer; width: 100%; }
+.place-result-item:hover { border-color: var(--accent); }
+.place-result-item .name { font-weight: 600; font-size: 13.5px; }
+.place-result-item .addr { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
 .qr-card-preview { width: 100%; max-width: 300px; margin: 0 auto; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: #ffffff; color: #202124; }
 .qr-card-preview .stripe { display: flex; height: 6px; }
 .qr-card-preview .stripe div { flex: 1; }

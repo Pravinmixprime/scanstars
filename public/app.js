@@ -311,8 +311,17 @@
           '<option value="other" selected>Other</option>' +
         '</select>' +
           '<div class="muted" style="font-size:12px;margin-top:6px">Used to show the customer relevant prompts before they write their Google review.</div></div>' +
-        '<div class="field"><label>Google review link</label><input name="reviewLink" placeholder="https://g.page/r/.../review" required>' +
-          '<div class="muted" style="font-size:12px;margin-top:6px">The exact link that opens this shop’s Google review composer.</div></div>' +
+        '<div class="field">' +
+          '<label>Find it on Google</label>' +
+          '<div class="row gap-8">' +
+            '<input id="place-query" placeholder="Shop name, city" style="flex:1">' +
+            '<button type="button" class="btn btn-ghost" data-action="search-place" style="flex-shrink:0">Search</button>' +
+          '</div>' +
+          '<div id="place-results"></div>' +
+          '<div class="muted" style="font-size:12px;margin-top:6px">Finds the shop’s Google listing and fills in the review link below — no need to hunt for it yourself.</div>' +
+        '</div>' +
+        '<div class="field"><label>Google review link</label><input name="reviewLink" id="review-link-input" placeholder="https://g.page/r/.../review" required>' +
+          '<div id="review-link-selected" class="muted" style="font-size:12px;margin-top:6px">The exact link that opens this shop’s Google review composer — search above, or paste it in yourself.</div></div>' +
         '<button class="btn btn-primary btn-block" type="submit">' + (hasCredit ? "Create QR code" : "Continue to payment") + '</button>' +
       '</form></div>';
     return appShell("shops", "Add a shop", html);
@@ -688,6 +697,49 @@
       var cta = document.getElementById("review-cta");
       if (cta) cta.classList.remove("hidden");
     }
+    if (action === "search-place") {
+      e.preventDefault();
+      var pqInput = document.getElementById("place-query");
+      var resultsBox = document.getElementById("place-results");
+      var q = ((pqInput && pqInput.value) || "").trim();
+      if (!resultsBox) return;
+      if (q.length < 3) {
+        resultsBox.innerHTML = '<div class="muted" style="font-size:12.5px;margin-top:8px">Type at least a few characters.</div>';
+        return;
+      }
+      var origText = t.textContent;
+      t.disabled = true; t.textContent = "Searching…";
+      resultsBox.innerHTML = '';
+      try {
+        var placeData = await api("GET", "/shops/place-search?q=" + encodeURIComponent(q));
+        var results = placeData.results || [];
+        if (!results.length) {
+          resultsBox.innerHTML = '<div class="muted" style="font-size:12.5px;margin-top:8px">No matches — try a more specific search, or paste the link in yourself below.</div>';
+        } else {
+          resultsBox.innerHTML = '<div class="place-result-list">' + results.map(function (r) {
+            return '<button type="button" class="place-result-item" data-action="pick-place" data-placeid="' + esc(r.placeId) + '" data-name="' + esc(r.name) + '">' +
+              '<div class="name">' + esc(r.name) + '</div>' +
+              '<div class="addr">' + esc(r.address) + '</div>' +
+            '</button>';
+          }).join("") + '</div>';
+        }
+      } catch (err) {
+        resultsBox.innerHTML = '<div class="form-err" style="margin-top:8px">' + esc(err.message) + '</div>';
+      } finally {
+        t.disabled = false; t.textContent = origText;
+      }
+    }
+    if (action === "pick-place") {
+      e.preventDefault();
+      var placeId = t.getAttribute("data-placeid");
+      var placeName = t.getAttribute("data-name");
+      var linkInput = document.getElementById("review-link-input");
+      if (linkInput) linkInput.value = "https://search.google.com/local/writereview?placeid=" + encodeURIComponent(placeId);
+      var noteEl = document.getElementById("review-link-selected");
+      if (noteEl) noteEl.innerHTML = 'Selected: <strong style="color:var(--text)">' + esc(placeName) + '</strong> — link filled in below. You can still edit it if needed.';
+      var resultsBox2 = document.getElementById("place-results");
+      if (resultsBox2) resultsBox2.innerHTML = '';
+    }
     if (action === "logout") {
       e.preventDefault();
       try { await api("POST", "/auth/logout"); } catch (err) {}
@@ -745,6 +797,16 @@
         showMsg(err.message, "err", "pay-msg");
         t.disabled = false; t.textContent = "Pay again";
       }
+    }
+  });
+
+  // Pressing Enter in the Google place search box should trigger a search,
+  // not submit the whole "Add shop" form it lives inside.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && e.target && e.target.id === "place-query") {
+      e.preventDefault();
+      var btn = document.querySelector('[data-action="search-place"]');
+      if (btn) btn.click();
     }
   });
 
