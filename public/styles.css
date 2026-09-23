@@ -154,6 +154,7 @@ tr:last-child td { border-bottom: none; }
 .prompt-chip.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .review-cta { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
 .review-cta.hidden { display: none; }
+.review-hint-tip { background: var(--accent-soft); color: var(--accent); border-radius: 8px; padding: 9px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
 .review-foot { text-align: center; font-size: 12.5px; margin-top: 22px; }
 
 @media (max-width: 760px) {

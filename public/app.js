@@ -10,12 +10,41 @@
   // and type their own words there. Nothing here is ever pre-filled or
   // auto-submitted; that would be fake-review content, which Google's
   // policies prohibit and can get a Business Profile suspended.
+  // Each prompt has a "hint" — a nudge toward what to mention, never a
+  // sentence to reuse. Shown only after the customer picks a prompt, so it
+  // reads as encouragement to write more, not text to copy.
   var REVIEW_PROMPTS = {
-    restaurant: ["How was the food?", "How was the service?", "How was the overall experience?", "Would you recommend us to a friend?"],
-    salon: ["How was your service today?", "How friendly was our staff?", "How was the place & hygiene?", "Would you book with us again?"],
-    retail: ["Did you find what you were looking for?", "How helpful was our staff?", "How was your shopping experience?", "Would you shop here again?"],
-    services: ["How was the quality of the work?", "Were we on time and professional?", "Would you use us again?", "How was your overall experience?"],
-    other: ["How was your overall experience?", "What did you like most?", "How was our service?", "Would you recommend us to others?"]
+    restaurant: [
+      { q: "How was the food?", hint: "Mention a specific dish or drink you tried." },
+      { q: "How was the service?", hint: "Was the staff quick, friendly, attentive?" },
+      { q: "How was the ambience?", hint: "Think about the seating, music, or cleanliness." },
+      { q: "What stood out the most?", hint: "A dish, a staff member, or a moment from your visit." },
+      { q: "Would you recommend us to a friend?", hint: "Say who you'd recommend it for — family, dates, quick bites." }
+    ],
+    salon: [
+      { q: "How was your service today?", hint: "Mention which service you got and how it turned out." },
+      { q: "How friendly was our staff?", hint: "Anyone in particular who made your visit better?" },
+      { q: "How was the hygiene & ambience?", hint: "Cleanliness, comfort, or the wait time." },
+      { q: "Would you book with us again?", hint: "What would bring you back?" }
+    ],
+    retail: [
+      { q: "Did you find what you were looking for?", hint: "Mention the product or section." },
+      { q: "How helpful was our staff?", hint: "Anyone who helped you out?" },
+      { q: "How was your shopping experience?", hint: "Store layout, checkout, variety." },
+      { q: "Would you shop here again?", hint: "What would bring you back?" }
+    ],
+    services: [
+      { q: "How was the quality of the work?", hint: "Mention the specific job or repair." },
+      { q: "Were we on time and professional?", hint: "Punctuality, communication, or clean-up." },
+      { q: "Would you use us again?", hint: "For what kind of job?" },
+      { q: "How was your overall experience?", hint: "Anything that stood out, good or bad." }
+    ],
+    other: [
+      { q: "How was your overall experience?", hint: "Be specific — what happened during your visit?" },
+      { q: "What did you like most?", hint: "A product, a person, or a moment." },
+      { q: "How was our service?", hint: "Speed, friendliness, or attention to detail." },
+      { q: "Would you recommend us to others?", hint: "Who would you recommend us to?" }
+    ]
   };
 
   // ---------------------------------------------------------------------
@@ -45,6 +74,50 @@
   function starIcon(size, color) { return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '"><path d="' + STAR_PATH + '" fill="' + (color || "#FBBC05") + '"></path></svg>'; }
   function starsRow(size) { size = size || 22; var one = starIcon(size, "#FBBC05"); return '<div class="row gap-8" style="justify-content:center">' + one + one + one + one + one + '</div>'; }
   function go(path) { location.hash = path; }
+  function debounce(fn, ms) {
+    var timer = null;
+    return function () {
+      var args = arguments;
+      clearTimeout(timer);
+      timer = setTimeout(function () { fn.apply(null, args); }, ms);
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // "Find it on Google" — live-as-you-type suggestions on the Add Shop form
+  // ---------------------------------------------------------------------
+  var placeSessionToken = null; // one random token per search "session" — keeps Google's billing to one unit per search instead of per keystroke
+  function getPlaceSessionToken() {
+    if (!placeSessionToken) {
+      placeSessionToken = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random();
+    }
+    return placeSessionToken;
+  }
+  function renderPlaceResults(resultsBox, results, emptyMsg) {
+    if (!results.length) {
+      resultsBox.innerHTML = '<div class="muted" style="font-size:12.5px;margin-top:8px">' + esc(emptyMsg) + '</div>';
+      return;
+    }
+    resultsBox.innerHTML = '<div class="place-result-list">' + results.map(function (r) {
+      return '<button type="button" class="place-result-item" data-action="pick-place" data-placeid="' + esc(r.placeId) + '" data-name="' + esc(r.name) + '">' +
+        '<div class="name">' + esc(r.name) + '</div>' +
+        '<div class="addr">' + esc(r.address) + '</div>' +
+      '</button>';
+    }).join("") + '</div>';
+  }
+  var runLiveAutocomplete = debounce(async function (q, resultsBox) {
+    if (q.length < 3) { resultsBox.innerHTML = ''; return; }
+    try {
+      var data = await api("GET", "/shops/place-autocomplete?q=" + encodeURIComponent(q) + "&sessiontoken=" + encodeURIComponent(getPlaceSessionToken()));
+      // The box may have moved on (user navigated away, or cleared the
+      // field) by the time this resolves — only render if it's still there.
+      if (!document.getElementById("place-results")) return;
+      renderPlaceResults(resultsBox, data.results || [], "No matches yet — keep typing, or use the exact link below.");
+    } catch (err) {
+      // Quietly do nothing on a live-typing error (e.g. not configured) —
+      // the explicit Search button below still gives a clear message.
+    }
+  }, 350);
 
   // ---------------------------------------------------------------------
   // Router
@@ -408,7 +481,7 @@
 
     var prompts = REVIEW_PROMPTS[shop.category] || REVIEW_PROMPTS.other;
     var chips = prompts.map(function (p, i) {
-      return '<button type="button" class="prompt-chip" data-action="pick-prompt" data-idx="' + i + '">' + esc(p) + '</button>';
+      return '<button type="button" class="prompt-chip" data-action="pick-prompt" data-idx="' + i + '" data-hint="' + esc(p.hint) + '">' + esc(p.q) + '</button>';
     }).join("");
 
     var html =
@@ -421,7 +494,8 @@
       '<div class="card review-card">' +
         '<div class="prompt-list">' + chips + '</div>' +
         '<div id="review-cta" class="review-cta hidden">' +
-          '<div class="muted" style="font-size:13.5px;margin-bottom:12px">Great — now share that on Google. You’ll write and post the review yourself, on Google’s own page.</div>' +
+          '<div id="review-hint" class="review-hint"></div>' +
+          '<div class="muted" style="font-size:13.5px;margin-bottom:12px">Now share that on Google, in your own words — you&#39;ll write and post it yourself, on Google’s own page.</div>' +
           '<a class="btn btn-primary btn-block" href="' + esc(shop.reviewLink) + '" target="_blank" rel="noopener">Continue to Google Reviews</a>' +
         '</div>' +
       '</div>' +
@@ -696,6 +770,9 @@
       t.classList.add("selected");
       var cta = document.getElementById("review-cta");
       if (cta) cta.classList.remove("hidden");
+      var hintEl = document.getElementById("review-hint");
+      var hintText = t.getAttribute("data-hint");
+      if (hintEl) hintEl.innerHTML = hintText ? '<div class="review-hint-tip">Tip: ' + esc(hintText) + '</div>' : "";
     }
     if (action === "search-place") {
       e.preventDefault();
@@ -712,17 +789,7 @@
       resultsBox.innerHTML = '';
       try {
         var placeData = await api("GET", "/shops/place-search?q=" + encodeURIComponent(q));
-        var results = placeData.results || [];
-        if (!results.length) {
-          resultsBox.innerHTML = '<div class="muted" style="font-size:12.5px;margin-top:8px">No matches — try a more specific search, or paste the link in yourself below.</div>';
-        } else {
-          resultsBox.innerHTML = '<div class="place-result-list">' + results.map(function (r) {
-            return '<button type="button" class="place-result-item" data-action="pick-place" data-placeid="' + esc(r.placeId) + '" data-name="' + esc(r.name) + '">' +
-              '<div class="name">' + esc(r.name) + '</div>' +
-              '<div class="addr">' + esc(r.address) + '</div>' +
-            '</button>';
-          }).join("") + '</div>';
-        }
+        renderPlaceResults(resultsBox, placeData.results || [], "No matches — try a more specific search, or paste the link in yourself below.");
       } catch (err) {
         resultsBox.innerHTML = '<div class="form-err" style="margin-top:8px">' + esc(err.message) + '</div>';
       } finally {
@@ -739,6 +806,7 @@
       if (noteEl) noteEl.innerHTML = 'Selected: <strong style="color:var(--text)">' + esc(placeName) + '</strong> — link filled in below. You can still edit it if needed.';
       var resultsBox2 = document.getElementById("place-results");
       if (resultsBox2) resultsBox2.innerHTML = '';
+      placeSessionToken = null; // this search is done — next one starts (and bills) as a fresh session
     }
     if (action === "logout") {
       e.preventDefault();
@@ -808,6 +876,19 @@
       var btn = document.querySelector('[data-action="search-place"]');
       if (btn) btn.click();
     }
+  });
+
+  // Live-as-you-type suggestions — as soon as the agent types a few
+  // characters, show matches automatically, the way Google's own search
+  // boxes behave. The explicit "Search" button still works too, for anyone
+  // who prefers to type the whole thing and press it.
+  document.addEventListener("input", function (e) {
+    if (!e.target || e.target.id !== "place-query") return;
+    var resultsBox = document.getElementById("place-results");
+    if (!resultsBox) return;
+    var q = e.target.value.trim();
+    if (!q) { resultsBox.innerHTML = ''; placeSessionToken = null; return; }
+    runLiveAutocomplete(q, resultsBox);
   });
 
   window.addEventListener("hashchange", render);

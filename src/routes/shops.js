@@ -22,6 +22,18 @@ var placeSearchLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Autocomplete fires on every keystroke (debounced client-side), so it
+// needs more headroom than the explicit-search limiter above — still
+// bounded to stop it turning into an unbounded cost, especially since a
+// whole typing session is billed together server-side by Google as long as
+// the same sessionToken keeps being passed through.
+var placeAutocompleteLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Only categories we actually have thought-starter prompts for on the
 // public review page — anything else (including missing/old shops) falls
 // back to the generic prompt set there.
@@ -85,6 +97,28 @@ router.get("/place-search", requireAuth, placeSearchLimiter, async (req, res) =>
   } catch (err) {
     console.error(err);
     res.status(502).json({ error: "Could not search Google Maps right now — enter the review link manually below." });
+  }
+});
+
+// Live-as-you-type suggestions for the same "Find it on Google" box — the
+// agent types a few letters, this returns matching listings (name +
+// address only) so a dropdown can appear immediately, the way Google's own
+// search boxes behave. Pass through the frontend's sessionToken so Google
+// bills one typing session as one unit rather than per keystroke.
+router.get("/place-autocomplete", requireAuth, placeAutocompleteLimiter, async (req, res) => {
+  try {
+    if (!googlePlaces.isConfigured()) {
+      return res.status(503).json({ error: "Google place search isn't set up on this server yet." });
+    }
+    var query = String(req.query.q || "").trim();
+    if (query.length < 3) return res.json({ results: [] });
+
+    var sessionToken = String(req.query.sessiontoken || "").trim() || undefined;
+    var results = await googlePlaces.autocomplete(query, sessionToken);
+    res.json({ results: results });
+  } catch (err) {
+    console.error(err);
+    res.status(502).json({ error: "Could not search Google Maps right now." });
   }
 });
 

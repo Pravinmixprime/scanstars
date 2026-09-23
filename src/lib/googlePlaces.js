@@ -45,4 +45,41 @@ async function searchPlaces(query) {
   }));
 }
 
-module.exports = { isConfigured, searchPlaces };
+// Live-as-you-type suggestions (Place Autocomplete (New)) — this is what
+// powers the "start typing and see matches" box on the Add Shop form. A
+// sessionToken (any string the frontend makes up per search session, e.g. a
+// random UUID) should be passed through and reused for all keystrokes of
+// one search, then dropped once a place is chosen — that's what lets
+// Google bill the whole typing session as one unit instead of per
+// keystroke.
+async function autocomplete(input, sessionToken) {
+  var body = { input: input };
+  if (sessionToken) body.sessionToken = sessionToken;
+
+  var res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": API_KEY
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    var errText = await res.text().catch(() => "");
+    throw new Error("Google Places API error (" + res.status + "): " + errText.slice(0, 300));
+  }
+
+  var data = await res.json();
+  var suggestions = data.suggestions || [];
+  return suggestions
+    .filter((s) => s.placePrediction)
+    .map((s) => {
+      var p = s.placePrediction;
+      var mainText = (p.structuredFormat && p.structuredFormat.mainText && p.structuredFormat.mainText.text) || (p.text && p.text.text) || "";
+      var secondaryText = (p.structuredFormat && p.structuredFormat.secondaryText && p.structuredFormat.secondaryText.text) || "";
+      return { placeId: p.placeId, name: mainText, address: secondaryText };
+    });
+}
+
+module.exports = { isConfigured, searchPlaces, autocomplete };
